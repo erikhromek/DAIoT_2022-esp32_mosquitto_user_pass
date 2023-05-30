@@ -30,19 +30,49 @@
 #include "esp_log.h"
 #include "mqtt_client.h"
 
+#define INCLUDE_vTaskDelete = 1
+
 static const char *TAG = "MQTT_EXAMPLE";
 
-// Set your local broker URI
-#define BROKER_URI "mqtt://192.168.68.54:1883"
+#include <bmp280.h>
 
-#define MOSQUITO_USER_NAME              "usr1"
-#define MOSQUITO_USER_PASSWORD          "miPassword"
+// esp32c3-bmp280 
+ #define SDA_GPIO      4
+ #define SCL_GPIO      5
+ #define USER_AGENT    "esp-idf/1.0 esp32c3"
+
+// Set your local broker URI
+#define BROKER_URI "mqtt://192.168.1.3:1883"
+
+#define MOSQUITO_USER_NAME              "daiot"
+#define MOSQUITO_USER_PASSWORD          "daiot"
+
+TaskHandle_t xHandle = NULL;
 
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
     if (error_code != 0) {
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+    }
+}
+
+static void sensor_read(void *pvParameters)
+{
+    float pressure, temperature, humidity;
+    while(1) {
+        if (bmp280_read_float(&dev, &temperature, &pressure, &humidity) != ESP_OK) {
+            ESP_LOGI(TAG, "Temperature/pressure reading failed\n");
+        } else {
+            ESP_LOGI(TAG, "Pressure: %.2f Pa, Temperature: %.2f C", pressure, temperature);
+            ESP_LOGI(TAG,", Humidity: %.2f\n", humidity);
+            ESP_LOGI(TAG,"sending: \n%s\n",temperature);
+            msg_id = esp_mqtt_client_publish(client, "/topic/temperature", temperature, 0, 1, 0);
+        //ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+        }
+
+        vTaskDelay(30000 / portTICK_PERIOD_MS);
+        ESP_LOGI(TAG, "Starting again!");
     }
 }
 
@@ -65,26 +95,33 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_publish(client, "/topic/qos1", "data_3", 0, 1, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+        //msg_id = esp_mqtt_client_publish(client, "/topic/qos1", "data_3", 0, 1, 0);
+        //ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+        xTaskCreate(&sensor_read, "sensor_read", 4096, NULL, 5, &xHandle);
+        
 
-        msg_id = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
+        msg_id = esp_mqtt_client_subscribe(client, "/topic/temperature", 0);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
 
+        /*
         msg_id = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
         ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
 
         msg_id = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
         ESP_LOGI(TAG, "sent unsubscribe successful, msg_id=%d", msg_id);
+        */
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        if( xHandle != NULL ) {
+            vTaskDelete( xHandle );
+        }
         break;
 
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-        msg_id = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+        //msg_id = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
+        //ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -104,7 +141,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
             log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
             ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
-
         }
         break;
     default:
@@ -169,11 +205,25 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
+    ESP_ERROR_CHECK(i2cdev_init());
+
+    bmp280_params_t params;
+    bmp280_init_default_params(&params);
+    bmp280_t dev;
+    memset(&dev, 0, sizeof(bmp280_t));
+    ESP_ERROR_CHECK(bmp280_init_desc(&dev, BMP280_I2C_ADDRESS_0, 0, SDA_GPIO, SCL_GPIO));
+    ESP_ERROR_CHECK(bmp280_init(&dev, &params));
+
+    bool bme280p = dev.id == BME280_CHIP_ID;
+    ESP_LOGI(TAG, "BMP280: found %s\n", bme280p ? "BME280" : "BMP280");
+
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
      * Read "Establishing Wi-Fi or Ethernet Connection" section in
      * examples/protocols/README.md for more information about this function.
      */
     ESP_ERROR_CHECK(example_connect());
+
+
 
     mqtt_app_start();
 }
