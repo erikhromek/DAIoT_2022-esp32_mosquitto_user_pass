@@ -40,7 +40,7 @@ static const char *TAG = "MQTT_EXAMPLE";
  #define USER_AGENT    "esp-idf/1.0 esp32c3"
 
 // Set your local broker URI
-#define BROKER_URI "mqtt://192.168.1.3:1883"
+#define BROKER_URI "mqtt://192.168.1.131:1883"
 
 #define MOSQUITO_USER_NAME              "daiot"
 #define MOSQUITO_USER_PASSWORD          "daiot"
@@ -68,7 +68,7 @@ static void sensor_read(void *pvParameters)
         } else {
             ESP_LOGI(TAG, "Pressure: %.2f Pa, Temperature: %.2f C", pressure, temperature);
             ESP_LOGI(TAG,", Humidity: %.2f\n", humidity);
-            ESP_LOGI(TAG,"sending: \n%s\n",temperature);
+            ESP_LOGI(TAG,"sending: \n%.2f C\n",temperature);
             sprintf(array, "%f", temperature);
             int msg_id = esp_mqtt_client_publish(client, "/topic/temperature", array, 0, 1, 0);
             ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
