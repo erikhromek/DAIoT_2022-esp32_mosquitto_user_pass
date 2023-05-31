@@ -30,8 +30,6 @@
 #include "esp_log.h"
 #include "mqtt_client.h"
 
-#define INCLUDE_vTaskDelete = 1
-
 static const char *TAG = "MQTT_EXAMPLE";
 
 #include <bmp280.h>
@@ -48,7 +46,9 @@ static const char *TAG = "MQTT_EXAMPLE";
 #define MOSQUITO_USER_PASSWORD          "daiot"
 
 TaskHandle_t xHandle = NULL;
-
+bmp280_params_t params;
+bmp280_t dev;
+esp_mqtt_client_handle_t client;
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
@@ -60,6 +60,8 @@ static void log_error_if_nonzero(const char *message, int error_code)
 static void sensor_read(void *pvParameters)
 {
     float pressure, temperature, humidity;
+    char array[10];
+
     while(1) {
         if (bmp280_read_float(&dev, &temperature, &pressure, &humidity) != ESP_OK) {
             ESP_LOGI(TAG, "Temperature/pressure reading failed\n");
@@ -67,8 +69,9 @@ static void sensor_read(void *pvParameters)
             ESP_LOGI(TAG, "Pressure: %.2f Pa, Temperature: %.2f C", pressure, temperature);
             ESP_LOGI(TAG,", Humidity: %.2f\n", humidity);
             ESP_LOGI(TAG,"sending: \n%s\n",temperature);
-            msg_id = esp_mqtt_client_publish(client, "/topic/temperature", temperature, 0, 1, 0);
-        //ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+            sprintf(array, "%f", temperature);
+            int msg_id = esp_mqtt_client_publish(client, "/topic/temperature", array, 0, 1, 0);
+            ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         }
 
         vTaskDelay(30000 / portTICK_PERIOD_MS);
@@ -181,7 +184,7 @@ static void mqtt_app_start(void)
     }
 #endif /* CONFIG_BROKER_URL_FROM_STDIN */
 
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    client = esp_mqtt_client_init(&mqtt_cfg);
     /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
@@ -207,9 +210,8 @@ void app_main(void)
 
     ESP_ERROR_CHECK(i2cdev_init());
 
-    bmp280_params_t params;
+    
     bmp280_init_default_params(&params);
-    bmp280_t dev;
     memset(&dev, 0, sizeof(bmp280_t));
     ESP_ERROR_CHECK(bmp280_init_desc(&dev, BMP280_I2C_ADDRESS_0, 0, SDA_GPIO, SCL_GPIO));
     ESP_ERROR_CHECK(bmp280_init(&dev, &params));
